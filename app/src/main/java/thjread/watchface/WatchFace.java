@@ -21,6 +21,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -86,9 +88,12 @@ public class WatchFace extends CanvasWatchFaceService {
     private class Engine extends CanvasWatchFaceService.Engine {
         final Handler mUpdateTimeHandler = new EngineHandler(this);
         boolean mRegisteredTimeZoneReceiver = false;
+        Bitmap mBackgroundBitmap;
+        Bitmap mBackgroundScaledBitmap;
         Paint mBackgroundPaint;
         Paint mTextPaint;
         boolean mAmbient;
+        boolean mBurnInProtection;
         Time mTime;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
             @Override
@@ -121,13 +126,27 @@ public class WatchFace extends CanvasWatchFaceService {
             Resources resources = WatchFace.this.getResources();
             mYOffset = resources.getDimension(R.dimen.digital_y_offset);
 
+            mBackgroundBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.background1);
+
             mBackgroundPaint = new Paint();
-            mBackgroundPaint.setColor(resources.getColor(R.color.background));
+            mBackgroundPaint.setColor(Color.BLACK);
 
             mTextPaint = new Paint();
             mTextPaint = createTextPaint(resources.getColor(R.color.digital_text));
 
             mTime = new Time();
+        }
+
+        @Override
+        public void onSurfaceChanged(
+                SurfaceHolder holder, int format, int width, int height) {
+            if (mBackgroundScaledBitmap == null
+                    || mBackgroundScaledBitmap.getWidth() != width
+                    || mBackgroundScaledBitmap.getHeight() != height) {
+                mBackgroundScaledBitmap = Bitmap.createScaledBitmap(mBackgroundBitmap,
+                        width, height, true /* filter */);
+            }
+            super.onSurfaceChanged(holder, format, width, height);
         }
 
         @Override
@@ -199,6 +218,9 @@ public class WatchFace extends CanvasWatchFaceService {
         public void onPropertiesChanged(Bundle properties) {
             super.onPropertiesChanged(properties);
             mLowBitAmbient = properties.getBoolean(PROPERTY_LOW_BIT_AMBIENT, false);
+            mBurnInProtection = properties.getBoolean(PROPERTY_BURN_IN_PROTECTION,
+                    false);
+
         }
 
         @Override
@@ -253,7 +275,7 @@ public class WatchFace extends CanvasWatchFaceService {
             if (isInAmbientMode()) {
                 canvas.drawColor(Color.BLACK);
             } else {
-                canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
+                canvas.drawBitmap(mBackgroundScaledBitmap, 0, 0, mBackgroundPaint);
             }
 
             // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
