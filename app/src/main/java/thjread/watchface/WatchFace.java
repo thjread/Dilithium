@@ -28,12 +28,14 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.text.format.Time;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 
@@ -107,6 +109,18 @@ public class WatchFace extends CanvasWatchFaceService {
         float mXOffset;
         float mYOffset;
 
+        int mBatteryPercent;
+        boolean mRegisteredBatteryReceiver = false;
+        final BroadcastReceiver mBatteryReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                mBatteryPercent = level / scale;
+                invalidate();
+            }
+        };
+
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
          * disable anti-aliasing in ambient mode.
@@ -127,7 +141,12 @@ public class WatchFace extends CanvasWatchFaceService {
             Resources resources = WatchFace.this.getResources();
             mYOffset = resources.getDimension(R.dimen.digital_y_offset);
 
-            mBackgroundBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.background1);
+            boolean align = false;
+            if (!align) {//TODO
+                mBackgroundBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.background1);
+            } else {
+                mBackgroundBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.background1_);
+            }
 
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(Color.BLACK);
@@ -136,6 +155,8 @@ public class WatchFace extends CanvasWatchFaceService {
             mTextPaint = createTextPaint(Color.BLACK);
 
             mCalendar = Calendar.getInstance();
+
+
         }
 
         @Override
@@ -184,20 +205,27 @@ public class WatchFace extends CanvasWatchFaceService {
         }
 
         private void registerReceiver() {
-            if (mRegisteredTimeZoneReceiver) {
-                return;
+            if (!mRegisteredTimeZoneReceiver) {
+                mRegisteredTimeZoneReceiver = true;
+                IntentFilter filter = new IntentFilter(Intent.ACTION_TIMEZONE_CHANGED);
+                WatchFace.this.registerReceiver(mTimeZoneReceiver, filter);
             }
-            mRegisteredTimeZoneReceiver = true;
-            IntentFilter filter = new IntentFilter(Intent.ACTION_TIMEZONE_CHANGED);
-            WatchFace.this.registerReceiver(mTimeZoneReceiver, filter);
+            if (!mRegisteredBatteryReceiver) {
+                mRegisteredBatteryReceiver = true;
+                IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+                WatchFace.this.registerReceiver(mBatteryReceiver, filter);
+            }
         }
 
         private void unregisterReceiver() {
-            if (!mRegisteredTimeZoneReceiver) {
-                return;
+            if (mRegisteredTimeZoneReceiver) {
+                mRegisteredTimeZoneReceiver = false;
+                WatchFace.this.unregisterReceiver(mTimeZoneReceiver);
             }
-            mRegisteredTimeZoneReceiver = false;
-            WatchFace.this.unregisterReceiver(mTimeZoneReceiver);
+            if (mRegisteredBatteryReceiver) {
+                mRegisteredBatteryReceiver = false;
+                WatchFace.this.unregisterReceiver(mBatteryReceiver);
+            }
         }
 
         @Override
@@ -219,9 +247,7 @@ public class WatchFace extends CanvasWatchFaceService {
         public void onPropertiesChanged(Bundle properties) {
             super.onPropertiesChanged(properties);
             mLowBitAmbient = properties.getBoolean(PROPERTY_LOW_BIT_AMBIENT, false);
-            mBurnInProtection = properties.getBoolean(PROPERTY_BURN_IN_PROTECTION,
-                    false);
-
+            mBurnInProtection = properties.getBoolean(PROPERTY_BURN_IN_PROTECTION, false);
         }
 
         @Override
@@ -237,11 +263,6 @@ public class WatchFace extends CanvasWatchFaceService {
                 mAmbient = inAmbientMode;
                 if (mLowBitAmbient) {
                     mTextPaint.setAntiAlias(!inAmbientMode);
-                }
-                if (inAmbientMode) {
-                    mTextPaint.setColor(Color.WHITE);
-                } else {
-                    mTextPaint.setColor(Color.BLACK);
                 }
             }
 
@@ -288,17 +309,42 @@ public class WatchFace extends CanvasWatchFaceService {
                 canvas.drawBitmap(mBackgroundScaledBitmap, 0, 0, mBackgroundPaint);
             }
 
-            // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
             String text = mAmbient
                     ? String.format("%02d:%02d", mCalendar.get(Calendar.HOUR_OF_DAY),
                         mCalendar.get(Calendar.MINUTE))
                     : String.format("%02d:%02d:%02d", mCalendar.get(Calendar.HOUR_OF_DAY),
                         mCalendar.get(Calendar.MINUTE),
                         mCalendar.get(Calendar.SECOND));
-            mXOffset = width/360.0f*101f;
-            mYOffset = width/360.0f*189f;
+            mXOffset = width/360.0f* 101f;
+            mYOffset = width/360.0f* 189f;
             mTextPaint.setTextSize(width/360.0f*89.0f);
+            mTextPaint.setColor(isInAmbientMode() ? Color.WHITE : Color.BLACK);
             canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+
+            text = String.format("%04d%02d.%02d", mCalendar.get(Calendar.YEAR),
+                        mCalendar.get(Calendar.MONTH)+1,
+                        mCalendar.get(Calendar.DAY_OF_MONTH));
+            mXOffset = width/360.0f* 109f;
+            mYOffset = width / 360.0f*253f;
+            mTextPaint.setTextSize(width / 360.0f * 49.0f);
+            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+
+            Log.e("thjread.watchface", Integer.toString(mBatteryPercent));
+            if (mBatteryPercent < 100) {
+                text = String.format("%02d", mBatteryPercent);
+                mXOffset = width / 360.0f * 237f;
+                mYOffset = width / 360.0f * 308f;
+                mTextPaint.setTextSize(width / 360.0f * 34.0f);
+                mTextPaint.setColor(Color.rgb(254, 153, 0));
+                canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+            } else {
+                text = String.format("%03d", mBatteryPercent);
+                mXOffset = width / 360.0f * 234f;
+                mYOffset = width / 360.0f * 307f;
+                mTextPaint.setTextSize(width / 360.0f * 31.0f);
+                mTextPaint.setColor(Color.rgb(254, 153, 0));
+                canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+            }
         }
 
         /**
