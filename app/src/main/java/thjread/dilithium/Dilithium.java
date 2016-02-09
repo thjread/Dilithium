@@ -94,6 +94,8 @@ public class Dilithium extends CanvasWatchFaceService {
         boolean mRegisteredTimeZoneReceiver = false;
         Bitmap mBackgroundBitmap;
         Bitmap mBackgroundScaledBitmap;
+        Bitmap mAmbientBitmap;
+        Bitmap mAmbientScaledBitmap;
         Paint mBackgroundPaint;
         Paint mTextPaint;
         boolean mAmbient;
@@ -162,6 +164,7 @@ public class Dilithium extends CanvasWatchFaceService {
             } else {
                 mBackgroundBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.background1_);
             }
+            mAmbientBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.ambient1);
 
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(Color.BLACK);
@@ -181,6 +184,8 @@ public class Dilithium extends CanvasWatchFaceService {
                     || mBackgroundScaledBitmap.getWidth() != width
                     || mBackgroundScaledBitmap.getHeight() != height) {
                 mBackgroundScaledBitmap = Bitmap.createScaledBitmap(mBackgroundBitmap,
+                        width, height, true /* filter */);
+                mAmbientScaledBitmap = Bitmap.createScaledBitmap(mAmbientBitmap,
                         width, height, true /* filter */);
             }
             super.onSurfaceChanged(holder, format, width, height);
@@ -318,8 +323,10 @@ public class Dilithium extends CanvasWatchFaceService {
             float height = bounds.height();
 
             // Draw the background.
-            if (mAmbient) {
+            if (mAmbient && (mLowBitAmbient || mBurnInProtection)) {
                 canvas.drawColor(Color.BLACK);
+            } else if (mAmbient) {
+                canvas.drawBitmap(mAmbientScaledBitmap, 0, 0, mBackgroundPaint);
             } else {
                 canvas.drawBitmap(mBackgroundScaledBitmap, 0, 0, mBackgroundPaint);
             }
@@ -333,7 +340,14 @@ public class Dilithium extends CanvasWatchFaceService {
             mXOffset = width/360.0f* 101f;
             mYOffset = width/360.0f* 189f;
             mTextPaint.setTextSize(width/360.0f*89.0f);
-            mTextPaint.setColor(isInAmbientMode() ? Color.WHITE : Color.BLACK);
+            mTextPaint.setColor(mAmbient ? Color.WHITE : Color.BLACK);
+            if (mAmbient && mBurnInProtection) {
+                mTextPaint.setStyle(Paint.Style.STROKE);
+                mTextPaint.setStrokeWidth(1);
+            } else {
+                mTextPaint.setStyle(Paint.Style.FILL);
+                mTextPaint.setStrokeWidth(0);
+            }
             canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
 
             text = String.format("%04d%02d.%02d", mCalendar.get(Calendar.YEAR),
@@ -344,14 +358,14 @@ public class Dilithium extends CanvasWatchFaceService {
             mTextPaint.setTextSize(width / 360.0f * 49.0f);
             canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
 
-            if (!mAmbient) {//TODO
+            if (!(mAmbient && (mLowBitAmbient || mBurnInProtection))) {//TODO
                 mBatteryPercent = 97;//TODO
                 if (mBatteryPercent < 100) {
                     text = String.format("%02d", mBatteryPercent);
                     mXOffset = width / 360.0f * 235f;
                     mYOffset = width / 360.0f * 306f;
                     mTextPaint.setTextSize(width / 360.0f * 34.0f);
-                    mTextPaint.setColor(Color.rgb(254, 153, 0));
+                    mTextPaint.setColor(!mAmbient ? Color.rgb(254, 153, 0) : Color.rgb(189, 140, 65));
                     canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
                 } else {
                     text = String.format("%03d", mBatteryPercent);
