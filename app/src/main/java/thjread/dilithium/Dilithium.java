@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package thjread.watchface;
+package thjread.dilithium;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -34,10 +34,11 @@ import android.os.Handler;
 import android.os.Message;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
-import android.text.format.Time;
-import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
+
+import com.google.android.gms.wearable.Node;
+import com.google.android.gms.wearable.WearableListenerService;
 
 import java.lang.ref.WeakReference;
 import java.util.Calendar;
@@ -48,7 +49,7 @@ import java.util.concurrent.TimeUnit;
  * Digital watch face with seconds. In ambient mode, the seconds aren't displayed. On devices with
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
-public class WatchFace extends CanvasWatchFaceService {
+public class Dilithium extends CanvasWatchFaceService {
     private static final Typeface NORMAL_TYPEFACE =
             Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
 
@@ -69,15 +70,15 @@ public class WatchFace extends CanvasWatchFaceService {
     }
 
     private static class EngineHandler extends Handler {
-        private final WeakReference<WatchFace.Engine> mWeakReference;
+        private final WeakReference<Dilithium.Engine> mWeakReference;
 
-        public EngineHandler(WatchFace.Engine reference) {
+        public EngineHandler(Dilithium.Engine reference) {
             mWeakReference = new WeakReference<>(reference);
         }
 
         @Override
         public void handleMessage(Message msg) {
-            WatchFace.Engine engine = mWeakReference.get();
+            Dilithium.Engine engine = mWeakReference.get();
             if (engine != null) {
                 switch (msg.what) {
                     case MSG_UPDATE_TIME:
@@ -121,6 +122,20 @@ public class WatchFace extends CanvasWatchFaceService {
             }
         };
 
+        //https://developer.android.com/training/wearables/data-layer/events.html#Listen
+        boolean mConnected;
+        public class NodeListenerService extends WearableListenerService {
+            @Override
+            public void onPeerDisconnected(Node peer) {
+                mConnected = false;
+            }
+
+            @Override
+            public void onPeerConnected(Node peer) {
+                mConnected = true;
+            }
+        }
+
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
          * disable anti-aliasing in ambient mode.
@@ -132,13 +147,13 @@ public class WatchFace extends CanvasWatchFaceService {
         public void onCreate(SurfaceHolder holder) {
             super.onCreate(holder);
 
-            setWatchFaceStyle(new WatchFaceStyle.Builder(WatchFace.this)
+            setWatchFaceStyle(new WatchFaceStyle.Builder(Dilithium.this)
                     .setCardPeekMode(WatchFaceStyle.PEEK_MODE_VARIABLE)
                     .setBackgroundVisibility(WatchFaceStyle.BACKGROUND_VISIBILITY_INTERRUPTIVE)
                     .setShowSystemUiTime(false)
                     .setAcceptsTapEvents(true)
                     .build());
-            Resources resources = WatchFace.this.getResources();
+            Resources resources = Dilithium.this.getResources();
             mYOffset = resources.getDimension(R.dimen.digital_y_offset);
 
             boolean align = false;
@@ -208,23 +223,23 @@ public class WatchFace extends CanvasWatchFaceService {
             if (!mRegisteredTimeZoneReceiver) {
                 mRegisteredTimeZoneReceiver = true;
                 IntentFilter filter = new IntentFilter(Intent.ACTION_TIMEZONE_CHANGED);
-                WatchFace.this.registerReceiver(mTimeZoneReceiver, filter);
+                Dilithium.this.registerReceiver(mTimeZoneReceiver, filter);
             }
             if (!mRegisteredBatteryReceiver) {
                 mRegisteredBatteryReceiver = true;
                 IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-                WatchFace.this.registerReceiver(mBatteryReceiver, filter);
+                Dilithium.this.registerReceiver(mBatteryReceiver, filter);
             }
         }
 
         private void unregisterReceiver() {
             if (mRegisteredTimeZoneReceiver) {
                 mRegisteredTimeZoneReceiver = false;
-                WatchFace.this.unregisterReceiver(mTimeZoneReceiver);
+                Dilithium.this.unregisterReceiver(mTimeZoneReceiver);
             }
             if (mRegisteredBatteryReceiver) {
                 mRegisteredBatteryReceiver = false;
-                WatchFace.this.unregisterReceiver(mBatteryReceiver);
+                Dilithium.this.unregisterReceiver(mBatteryReceiver);
             }
         }
 
@@ -233,7 +248,7 @@ public class WatchFace extends CanvasWatchFaceService {
             super.onApplyWindowInsets(insets);
 
             // Load resources that have alternate values for round watches.
-            Resources resources = WatchFace.this.getResources();
+            Resources resources = Dilithium.this.getResources();
             boolean isRound = insets.isRound();
             mXOffset = resources.getDimension(isRound
                     ? R.dimen.digital_x_offset_round : R.dimen.digital_x_offset);
@@ -278,7 +293,7 @@ public class WatchFace extends CanvasWatchFaceService {
          */
         @Override
         public void onTapCommand(int tapType, int x, int y, long eventTime) {
-            Resources resources = WatchFace.this.getResources();
+            Resources resources = Dilithium.this.getResources();
             switch (tapType) {
                 case TAP_TYPE_TOUCH:
                     // The user has started touching the screen.
@@ -303,7 +318,7 @@ public class WatchFace extends CanvasWatchFaceService {
             float height = bounds.height();
 
             // Draw the background.
-            if (isInAmbientMode()) {
+            if (mAmbient) {
                 canvas.drawColor(Color.BLACK);
             } else {
                 canvas.drawBitmap(mBackgroundScaledBitmap, 0, 0, mBackgroundPaint);
@@ -311,7 +326,7 @@ public class WatchFace extends CanvasWatchFaceService {
 
             String text = mAmbient
                     ? String.format("%02d:%02d", mCalendar.get(Calendar.HOUR_OF_DAY),
-                        mCalendar.get(Calendar.MINUTE))
+                    mCalendar.get(Calendar.MINUTE))
                     : String.format("%02d:%02d:%02d", mCalendar.get(Calendar.HOUR_OF_DAY),
                         mCalendar.get(Calendar.MINUTE),
                         mCalendar.get(Calendar.SECOND));
@@ -329,21 +344,38 @@ public class WatchFace extends CanvasWatchFaceService {
             mTextPaint.setTextSize(width / 360.0f * 49.0f);
             canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
 
-            Log.e("thjread.watchface", Integer.toString(mBatteryPercent));
-            if (mBatteryPercent < 100) {
-                text = String.format("%02d", mBatteryPercent);
-                mXOffset = width / 360.0f * 237f;
-                mYOffset = width / 360.0f * 308f;
-                mTextPaint.setTextSize(width / 360.0f * 34.0f);
-                mTextPaint.setColor(Color.rgb(254, 153, 0));
-                canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
-            } else {
-                text = String.format("%03d", mBatteryPercent);
-                mXOffset = width / 360.0f * 234f;
-                mYOffset = width / 360.0f * 307f;
-                mTextPaint.setTextSize(width / 360.0f * 31.0f);
-                mTextPaint.setColor(Color.rgb(254, 153, 0));
-                canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+            if (!mAmbient) {//TODO
+                mBatteryPercent = 97;//TODO
+                if (mBatteryPercent < 100) {
+                    text = String.format("%02d", mBatteryPercent);
+                    mXOffset = width / 360.0f * 235f;
+                    mYOffset = width / 360.0f * 306f;
+                    mTextPaint.setTextSize(width / 360.0f * 34.0f);
+                    mTextPaint.setColor(Color.rgb(254, 153, 0));
+                    canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+                } else {
+                    text = String.format("%03d", mBatteryPercent);
+                    mXOffset = width / 360.0f * 232f;
+                    mYOffset = width / 360.0f * 305f;
+                    mTextPaint.setTextSize(width / 360.0f * 31.0f);
+                    mTextPaint.setColor(Color.rgb(254, 153, 0));
+                    canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+                }
+
+                mConnected = true; //TODO
+                if (mConnected) {
+                    text = "ONLINE";
+                    mXOffset = width / 360.0f * 232f;
+                    mYOffset = width / 360.0f * 105f;
+                    mTextPaint.setTextSize(width / 360.0f * 25.0f);
+                    canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+                } else {
+                    text = "OFFLINE";
+                    mXOffset = width / 360.0f * 229f;
+                    mYOffset = width / 360.0f * 105f;
+                    mTextPaint.setTextSize(width / 360.0f * 25.0f);
+                    canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+                }
             }
         }
 
