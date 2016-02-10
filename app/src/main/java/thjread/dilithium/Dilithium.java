@@ -17,10 +17,12 @@
 package thjread.dilithium;
 
 import android.content.BroadcastReceiver;
+import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -28,22 +30,33 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.support.wearable.provider.WearableCalendarContract;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
+import android.text.format.DateUtils;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 
 import com.google.android.gms.wearable.Node;
+import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 
 import java.lang.ref.WeakReference;
 import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
+
+import android.support.wearable.provider.WearableCalendarContract;
+import android.provider.CalendarContract;
 
 /**
  * Digital watch face with seconds. In ambient mode, the seconds aren't displayed. On devices with
@@ -63,6 +76,7 @@ public class Dilithium extends CanvasWatchFaceService {
      * Handler message id for updating the time periodically in interactive mode.
      */
     private static final int MSG_UPDATE_TIME = 0;
+    private static final int MSG_LOAD_CALENDAR = 1;
 
     @Override
     public Engine onCreateEngine() {
@@ -138,12 +152,124 @@ public class Dilithium extends CanvasWatchFaceService {
             }
         }
 
+        int mTemp;//TODO
+
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
          * disable anti-aliasing in ambient mode.
          */
         boolean mLowBitAmbient;
         boolean mBurnInProtection;
+
+        boolean showCalendar = false;
+        String calendarFrom;
+        String calendarTo;
+
+        //TODO: https://developer.android.com/samples/WatchFace/Wearable/src/com.example.android.wearable.watchface/CalendarWatchFaceService.html
+        private class CalendarSync extends AsyncTask<Void, Void, Void> {
+            @Override
+            protected Void doInBackground(Void... voids) {
+                long begin = System.currentTimeMillis();
+                Uri.Builder builder =
+                        WearableCalendarContract.Instances.CONTENT_URI.buildUpon();
+                ContentUris.appendId(builder, begin);
+                ContentUris.appendId(builder, begin + DateUtils.DAY_IN_MILLIS);
+
+                final String[] INSTANCE_PROJECTION = new String[] {
+                        CalendarContract.Instances.EVENT_ID,      // 0
+                        CalendarContract.Instances.BEGIN,         // 1
+                        CalendarContract.Instances.END          // 2
+                };
+                final Cursor cursor = getContentResolver().query(builder.build(),
+                        INSTANCE_PROJECTION, null, null, null);
+                long fromEventID = -1, toEventID = -1;
+                long latestFrom = -1; long fromStart = -1;
+                long earliestTo = -1;
+                while (cursor.moveToNext()) {
+                    long start = cursor.getLong(1);
+                    long end = cursor.getLong(2);
+                    if (start < begin && (end > latestFrom || latestFrom == -1)) {
+                        fromEventID = cursor.getLong(0);
+                        latestFrom = end;
+                        fromStart = start;
+                    }
+                    if (start > begin && (start < earliestTo || earliestTo == -1)) {
+                        toEventID = cursor.getLong(0);
+                        earliestTo = start;
+                    }
+                }
+
+                final String[] EVENT_PROJECTION = new String[] {
+                        CalendarContract.Events._ID,             // 0
+                        CalendarContract.Events.DESCRIPTION      // 1
+                };
+                String selection = CalendarContract.Events._ID + " = ?";
+                String[] selectionArgs = new String[2];
+                selectionArgs[0] = String.valueOf(fromEventID);
+                selectionArgs[1] = String.valueOf(toEventID);
+                final Cursor events_cursor = getContentResolver().query(builder.build(),
+                        EVENT_PROJECTION, selection, selectionArgs, null);
+                String fromDescription = null;
+                String toDescription = null;
+                while (cursor.moveToNext()) {
+                    long id = cursor.getLong(0);
+                    if (id == fromEventID) {
+                        fromDescription = cursor.getString(1);
+                    }
+                    if (id == toEventID) {
+                        toDescription = cursor.getString(1);
+                    }
+                }
+
+                calendarFrom = calendarTo = null;
+                if (latestFrom > begin - DateUtils.MINUTE_IN_MILLIS*15 && fromDescription != null) {
+                    calendarFrom = fromDescription;
+                }
+                if (earliestTo < begin + DateUtils.MINUTE_IN_MILLIS*30 &&
+                        fromStart < begin - DateUtils.MINUTE_IN_MILLIS*10 &&
+                        toDescription != null) {
+                    calendarTo = toDescription;
+                }
+                if (calendarFrom != null || calendarTo != null) {
+                    showCalendar = true;
+                }
+                Void data = null;
+                return data;
+            }
+
+            @Override
+            protected void onPostExecute(Void data) {
+                invalidate();
+                if (isVisible()) {
+                    mLoadCalendarHandler.sendEmptyMessageDelayed(
+                            MSG_LOAD_CALENDAR, DateUtils.MINUTE_IN_MILLIS);
+                }
+                Log.e("thjread.dilithium", calendarTo);
+            }
+        }
+
+        private AsyncTask<Void, Void, Void> mLoadCalendarTask;
+
+        /* Handler to load the calendar once a minute in interactive mode. */
+        final Handler mLoadCalendarHandler = new Handler() {
+            @Override
+            public void handleMessage(Message message) {
+                switch (message.what) {
+                    case MSG_LOAD_CALENDAR:
+                        cancelLoadCalendarTask();
+                        mLoadCalendarTask = new CalendarSync();
+                        mLoadCalendarTask.execute();
+                        break;
+                }
+            }
+        };
+
+        private void cancelLoadCalendarTask() {
+            if (mLoadCalendarTask != null) {
+                mLoadCalendarTask.cancel(true);
+            }
+        }
+
 
         @Override
         public void onCreate(SurfaceHolder holder) {
@@ -174,7 +300,7 @@ public class Dilithium extends CanvasWatchFaceService {
 
             mCalendar = Calendar.getInstance();
 
-
+            mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
         }
 
         @Override
@@ -194,6 +320,7 @@ public class Dilithium extends CanvasWatchFaceService {
         @Override
         public void onDestroy() {
             mUpdateTimeHandler.removeMessages(MSG_UPDATE_TIME);
+            mLoadCalendarHandler.removeMessages(MSG_LOAD_CALENDAR);
             super.onDestroy();
         }
 
@@ -212,11 +339,12 @@ public class Dilithium extends CanvasWatchFaceService {
 
             if (visible) {
                 registerReceiver();
-
+                mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
                 // Update time zone in case it changed while we weren't visible.
                 mCalendar.setTimeZone(TimeZone.getDefault());
             } else {
                 unregisterReceiver();
+                mLoadCalendarHandler.removeMessages(MSG_LOAD_CALENDAR);
             }
 
             // Whether the timer should be running depends on whether we're visible (as well as
@@ -390,6 +518,13 @@ public class Dilithium extends CanvasWatchFaceService {
                     mTextPaint.setTextSize(width / 360.0f * 25.0f);
                     canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
                 }
+
+                mTemp = 15;
+                text = String.format("%02d", mTemp);
+                mXOffset = width / 360.0f * 239f;
+                mYOffset = width / 360.0f * 76f;
+                mTextPaint.setTextSize(width / 360.0f * 31.0f);
+                canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
             }
         }
 
