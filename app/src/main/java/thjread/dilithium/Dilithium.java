@@ -172,6 +172,9 @@ public class Dilithium extends CanvasWatchFaceService {
         private class CalendarSync extends AsyncTask<Void, Void, Void> {
             @Override
             protected Void doInBackground(Void... voids) {
+                if (!mConnected) {
+                    return null;
+                }
                 long begin = System.currentTimeMillis();
                 Uri.Builder builder =
                         WearableCalendarContract.Instances.CONTENT_URI.buildUpon();
@@ -247,12 +250,13 @@ public class Dilithium extends CanvasWatchFaceService {
                 if (calendarFrom != null || calendarTo != null) {
                     showCalendar = true;
                     if (calendarFrom == null) {
-                        calendarFrom = " __";
+                        calendarFrom = "  __";
                     } else {
-                        calendarTo = " __";
+                        calendarTo = "  __";
                     }
+                } else {
+                    showCalendar = false;
                 }
-                Void data = null;
 
                 Log.e("thjread.dilithium", "From: " + Long.toString(latestFrom));
                 if (fromDescription != null) {
@@ -264,7 +268,7 @@ public class Dilithium extends CanvasWatchFaceService {
                     Log.e("thjread.dilithium", toDescription);
                 }
 
-                return data;
+                return null;
             }
 
             @Override
@@ -312,6 +316,7 @@ public class Dilithium extends CanvasWatchFaceService {
 
             setWatchFaceStyle(new WatchFaceStyle.Builder(Dilithium.this)
                     .setCardPeekMode(WatchFaceStyle.PEEK_MODE_VARIABLE)
+                    .setAmbientPeekMode(WatchFaceStyle.AMBIENT_PEEK_MODE_HIDDEN)
                     .setBackgroundVisibility(WatchFaceStyle.BACKGROUND_VISIBILITY_INTERRUPTIVE)
                     .setShowSystemUiTime(false)
                     .setAcceptsTapEvents(true)
@@ -514,16 +519,13 @@ public class Dilithium extends CanvasWatchFaceService {
             }
             canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
 
-            Rect r = getPeekCardPosition();
-            if (r.width() == 0 || !mAmbient) {
-                text = String.format("%04d%02d.%02d", mCalendar.get(Calendar.YEAR),
-                        mCalendar.get(Calendar.MONTH) + 1,
-                        mCalendar.get(Calendar.DAY_OF_MONTH));
-                mXOffset = width / 360.0f * 109f;
-                mYOffset = width / 360.0f * 253f;
-                mTextPaint.setTextSize(width / 360.0f * 49.0f);
-                canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
-            }
+            text = String.format("%04d%02d.%02d", mCalendar.get(Calendar.YEAR),
+                    mCalendar.get(Calendar.MONTH) + 1,
+                    mCalendar.get(Calendar.DAY_OF_MONTH));
+            mXOffset = width / 360.0f * 109f;
+            mYOffset = width / 360.0f * 253f;
+            mTextPaint.setTextSize(width / 360.0f * 49.0f);
+            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
 
             if (!(mAmbient && (mLowBitAmbient || mBurnInProtection))) {
                 if (mBatteryPercent < 100) {
