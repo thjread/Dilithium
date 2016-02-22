@@ -51,6 +51,7 @@ import com.google.android.gms.wearable.WearableListenerService;
 import java.lang.ref.WeakReference;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
@@ -107,7 +108,9 @@ public class Dilithium extends CanvasWatchFaceService {
         final Handler mUpdateTimeHandler = new EngineHandler(this);
         boolean mRegisteredTimeZoneReceiver = false;
         Bitmap mBackgroundBitmap;
+        Bitmap mBackgroundCalendarBitmap;
         Bitmap mBackgroundScaledBitmap;
+        Bitmap mBackgroundCalendarScaledBitmap;
         Bitmap mAmbientBitmap;
         Bitmap mAmbientScaledBitmap;
         Paint mBackgroundPaint;
@@ -133,13 +136,13 @@ public class Dilithium extends CanvasWatchFaceService {
             public void onReceive(Context context, Intent intent) {
                 int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-                mBatteryPercent = level / scale;
+                mBatteryPercent = (level*100) / scale;
                 invalidate();
             }
         };
 
         //https://developer.android.com/training/wearables/data-layer/events.html#Listen
-        boolean mConnected;
+        boolean mConnected = true;//TODO
         public class NodeListenerService extends WearableListenerService {
             @Override
             public void onPeerDisconnected(Node peer) {
@@ -172,68 +175,95 @@ public class Dilithium extends CanvasWatchFaceService {
                 long begin = System.currentTimeMillis();
                 Uri.Builder builder =
                         WearableCalendarContract.Instances.CONTENT_URI.buildUpon();
-                ContentUris.appendId(builder, begin);
+                ContentUris.appendId(builder, begin);//TODO
                 ContentUris.appendId(builder, begin + DateUtils.DAY_IN_MILLIS);
 
                 final String[] INSTANCE_PROJECTION = new String[] {
                         CalendarContract.Instances.EVENT_ID,      // 0
                         CalendarContract.Instances.BEGIN,         // 1
-                        CalendarContract.Instances.END          // 2
+                        CalendarContract.Instances.END,          // 2
+                        CalendarContract.Instances.DESCRIPTION,   // 3
+                        CalendarContract.Instances.ALL_DAY      // 4
                 };
                 final Cursor cursor = getContentResolver().query(builder.build(),
                         INSTANCE_PROJECTION, null, null, null);
-                long fromEventID = -1, toEventID = -1;
+                //long fromEventID = -1, toEventID = -1;
                 long latestFrom = -1; long fromStart = -1;
                 long earliestTo = -1;
+                String toDescription = null;
+                String fromDescription = null;
                 while (cursor.moveToNext()) {
                     long start = cursor.getLong(1);
                     long end = cursor.getLong(2);
-                    if (start < begin && (end > latestFrom || latestFrom == -1)) {
-                        fromEventID = cursor.getLong(0);
+                    String all_day = cursor.getString(4);
+                    if (start < begin && (end > latestFrom || latestFrom == -1) && !all_day.equals("1")) {
+                        //fromEventID = cursor.getLong(0);
                         latestFrom = end;
                         fromStart = start;
+                        fromDescription = cursor.getString(3);
                     }
-                    if (start > begin && (start < earliestTo || earliestTo == -1)) {
-                        toEventID = cursor.getLong(0);
+                    if (start > begin && (start < earliestTo || earliestTo == -1) && !all_day.equals("1")) {
+                        //toEventID = cursor.getLong(0);
                         earliestTo = start;
-                    }
-                }
-
-                final String[] EVENT_PROJECTION = new String[] {
-                        CalendarContract.Events._ID,             // 0
-                        CalendarContract.Events.DESCRIPTION      // 1
-                };
-                String selection = CalendarContract.Events._ID + " = ?";
-                String[] selectionArgs = new String[2];
-                selectionArgs[0] = String.valueOf(fromEventID);
-                selectionArgs[1] = String.valueOf(toEventID);
-                final Cursor events_cursor = getContentResolver().query(builder.build(),
-                        EVENT_PROJECTION, selection, selectionArgs, null);
-                String fromDescription = null;
-                String toDescription = null;
-                while (cursor.moveToNext()) {
-                    long id = cursor.getLong(0);
-                    if (id == fromEventID) {
-                        fromDescription = cursor.getString(1);
-                    }
-                    if (id == toEventID) {
-                        toDescription = cursor.getString(1);
+                        toDescription = cursor.getString(3);
                     }
                 }
 
                 calendarFrom = calendarTo = null;
                 if (latestFrom > begin - DateUtils.MINUTE_IN_MILLIS*15 && fromDescription != null) {
                     calendarFrom = fromDescription;
+                    String[] arr = calendarFrom.split(" ");
+                    calendarFrom = "";
+                    for (int i=0; i<arr.length; ++i) {
+                        if (calendarFrom.length() + arr[i].length() <= 4) {
+                            if (i == 0) {
+                                calendarFrom = arr[i];
+                            } else {
+                                calendarFrom += " " + arr[i];
+                            }
+                        } else {
+                            break;
+                        }
+                    }
                 }
                 if (earliestTo < begin + DateUtils.MINUTE_IN_MILLIS*30 &&
                         fromStart < begin - DateUtils.MINUTE_IN_MILLIS*10 &&
                         toDescription != null) {
                     calendarTo = toDescription;
+                    String[] arr = calendarTo.split(" ");
+                    calendarTo = "";
+                    for (int i=0; i<arr.length; ++i) {
+                        if (calendarTo.length() + arr[i].length() <= 4) {
+                            if (i == 0) {
+                                calendarTo = arr[i];
+                            } else {
+                                calendarTo += " " + arr[i];
+                            }
+                        } else {
+                            break;
+                        }
+                    }
                 }
                 if (calendarFrom != null || calendarTo != null) {
                     showCalendar = true;
+                    if (calendarFrom == null) {
+                        calendarFrom = " __";
+                    } else {
+                        calendarTo = " __";
+                    }
                 }
                 Void data = null;
+
+                Log.e("thjread.dilithium", "From: " + Long.toString(latestFrom));
+                if (fromDescription != null) {
+                    Log.e("thjread.dilithium", fromDescription);
+                }
+
+                Log.e("thjread.dilithium", "To: " + Long.toString(earliestTo));
+                if (toDescription != null) {
+                    Log.e("thjread.dilithium", toDescription);
+                }
+
                 return data;
             }
 
@@ -244,7 +274,12 @@ public class Dilithium extends CanvasWatchFaceService {
                     mLoadCalendarHandler.sendEmptyMessageDelayed(
                             MSG_LOAD_CALENDAR, DateUtils.MINUTE_IN_MILLIS);
                 }
-                Log.e("thjread.dilithium", calendarTo);
+                if (calendarTo != null) {
+                    Log.e("thjread.dilithium", calendarTo);
+                }
+                if (calendarFrom != null) {
+                    Log.e("thjread.dilithium", calendarFrom);
+                }
             }
         }
 
@@ -284,12 +319,9 @@ public class Dilithium extends CanvasWatchFaceService {
             Resources resources = Dilithium.this.getResources();
             mYOffset = resources.getDimension(R.dimen.digital_y_offset);
 
-            boolean align = false;
-            if (!align) {//TODO
-                mBackgroundBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.background1);
-            } else {
-                mBackgroundBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.background1_);
-            }
+            mBackgroundBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.background1);
+            mBackgroundCalendarBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.background2);
+
             mAmbientBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.ambient1);
 
             mBackgroundPaint = new Paint();
@@ -310,6 +342,8 @@ public class Dilithium extends CanvasWatchFaceService {
                     || mBackgroundScaledBitmap.getWidth() != width
                     || mBackgroundScaledBitmap.getHeight() != height) {
                 mBackgroundScaledBitmap = Bitmap.createScaledBitmap(mBackgroundBitmap,
+                        width, height, true /* filter */);
+                mBackgroundCalendarScaledBitmap = Bitmap.createScaledBitmap(mBackgroundCalendarBitmap,
                         width, height, true /* filter */);
                 mAmbientScaledBitmap = Bitmap.createScaledBitmap(mAmbientBitmap,
                         width, height, true /* filter */);
@@ -451,12 +485,14 @@ public class Dilithium extends CanvasWatchFaceService {
             float height = bounds.height();
 
             // Draw the background.
-            if (mAmbient && (mLowBitAmbient || mBurnInProtection)) {
+            if (mAmbient && !showCalendar) {
                 canvas.drawColor(Color.BLACK);
             } else if (mAmbient) {
                 canvas.drawBitmap(mAmbientScaledBitmap, 0, 0, mBackgroundPaint);
-            } else {
+            }else if (!showCalendar){
                 canvas.drawBitmap(mBackgroundScaledBitmap, 0, 0, mBackgroundPaint);
+            } else {
+                canvas.drawBitmap(mBackgroundCalendarScaledBitmap, 0, 0, mBackgroundPaint);
             }
 
             String text = mAmbient
@@ -478,16 +514,18 @@ public class Dilithium extends CanvasWatchFaceService {
             }
             canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
 
-            text = String.format("%04d%02d.%02d", mCalendar.get(Calendar.YEAR),
-                        mCalendar.get(Calendar.MONTH)+1,
+            Rect r = getPeekCardPosition();
+            if (r.width() == 0 || !mAmbient) {
+                text = String.format("%04d%02d.%02d", mCalendar.get(Calendar.YEAR),
+                        mCalendar.get(Calendar.MONTH) + 1,
                         mCalendar.get(Calendar.DAY_OF_MONTH));
-            mXOffset = width/360.0f* 109f;
-            mYOffset = width / 360.0f*253f;
-            mTextPaint.setTextSize(width / 360.0f * 49.0f);
-            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+                mXOffset = width / 360.0f * 109f;
+                mYOffset = width / 360.0f * 253f;
+                mTextPaint.setTextSize(width / 360.0f * 49.0f);
+                canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+            }
 
-            if (!(mAmbient && (mLowBitAmbient || mBurnInProtection))) {//TODO
-                mBatteryPercent = 97;//TODO
+            if (!(mAmbient && (mLowBitAmbient || mBurnInProtection))) {
                 if (mBatteryPercent < 100) {
                     text = String.format("%02d", mBatteryPercent);
                     mXOffset = width / 360.0f * 235f;
@@ -504,7 +542,6 @@ public class Dilithium extends CanvasWatchFaceService {
                     canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
                 }
 
-                mConnected = true; //TODO
                 if (mConnected) {
                     text = "ONLINE";
                     mXOffset = width / 360.0f * 232f;
@@ -519,12 +556,31 @@ public class Dilithium extends CanvasWatchFaceService {
                     canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
                 }
 
-                mTemp = 15;
-                text = String.format("%02d", mTemp);
-                mXOffset = width / 360.0f * 239f;
-                mYOffset = width / 360.0f * 76f;
-                mTextPaint.setTextSize(width / 360.0f * 31.0f);
-                canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+                if (!showCalendar) {
+                    mTemp = 15;
+                    text = String.format("%02d", mTemp);
+                    mXOffset = width / 360.0f * 239f;
+                    mYOffset = width / 360.0f * 76f;
+                    mTextPaint.setTextSize(width / 360.0f * 31.0f);
+                    canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+                }
+            }
+            if (showCalendar) {
+                if (calendarFrom != null) {
+                    text = calendarFrom;
+                    mXOffset = width / 360.0f * 129f;
+                    mYOffset = width / 360.0f * 76f;
+                    mTextPaint.setTextSize(width / 360.0f * 31.0f);
+                    canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+                }
+
+                if (calendarTo != null) {
+                    text = calendarTo;
+                    mXOffset = width / 360.0f * 216f;
+                    mYOffset = width / 360.0f * 76f;
+                    mTextPaint.setTextSize(width / 360.0f * 31.0f);
+                    canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+                }
             }
         }
 
@@ -557,7 +613,17 @@ public class Dilithium extends CanvasWatchFaceService {
                 long delayMs = INTERACTIVE_UPDATE_RATE_MS
                         - (timeMs % INTERACTIVE_UPDATE_RATE_MS);
                 mUpdateTimeHandler.sendEmptyMessageDelayed(MSG_UPDATE_TIME, delayMs);
+
+                mCalendar.setTimeInMillis(System.currentTimeMillis());
+
+                if (mCalendar.get(Calendar.SECOND) == 0) {
+                    backgroundUpdate();
+                }
             }
+        }
+
+        private void backgroundUpdate() {
+
         }
     }
 }
