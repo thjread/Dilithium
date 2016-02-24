@@ -104,6 +104,21 @@ public class Dilithium extends CanvasWatchFaceService {
         }
     }
 
+    static boolean mConnected = true;
+    public static class NodeListenerService extends WearableListenerService {
+        private static final String TAG = "NodeListenerService";
+
+        @Override
+        public void onPeerDisconnected(Node peer) {
+            mConnected = false;
+        }
+
+        @Override
+        public void onPeerConnected(Node peer) {
+            mConnected = true;
+        }
+    }
+
     private class Engine extends CanvasWatchFaceService.Engine {
         final Handler mUpdateTimeHandler = new EngineHandler(this);
         boolean mRegisteredTimeZoneReceiver = false;
@@ -142,18 +157,6 @@ public class Dilithium extends CanvasWatchFaceService {
         };
 
         //https://developer.android.com/training/wearables/data-layer/events.html#Listen
-        boolean mConnected = true;//TODO
-        public class NodeListenerService extends WearableListenerService {
-            @Override
-            public void onPeerDisconnected(Node peer) {
-                mConnected = false;
-            }
-
-            @Override
-            public void onPeerConnected(Node peer) {
-                mConnected = true;
-            }
-        }
 
         int mTemp;//TODO
 
@@ -190,10 +193,15 @@ public class Dilithium extends CanvasWatchFaceService {
                 calendarToText = calendarTo;
             }
 
+            if (earliestTo < begin && !calendarTo.equals("")) {
+                calendarFromText = calendarTo;
+                calendarToText = "";
+            }
+
             if (showCalendar) {
-                if (calendarFromText == "") {
+                if (calendarFromText.equals("")) {
                     calendarFromText = "  __";
-                } else if (calendarToText == "") {
+                } else if (calendarToText.equals("")) {
                     calendarToText = "  __";
                 }
             }
@@ -243,6 +251,8 @@ public class Dilithium extends CanvasWatchFaceService {
                     }
                 }
 
+                cursor.close();
+
                 if (fromDescription != null) {
                     calendarFrom = fromDescription;
                     String[] arr = calendarFrom.split(" ");
@@ -258,8 +268,15 @@ public class Dilithium extends CanvasWatchFaceService {
                             break;
                         }
                     }
-                    for (int i=0; i<5-calendarFrom.length(); ++i) {
-                        calendarFrom = " " + calendarFrom;
+                    if (!calendarFrom.equals("")) {
+                        for (int i = 0; i < 5 - calendarFrom.length(); ++i) {
+                            calendarFrom = " " + calendarFrom;
+                        }
+                    }
+                    if (fromDescription.equals("Study Room")) {
+                        calendarFrom = " Free";
+                    } else if (fromDescription.equals("Sports Hall")) {
+                        calendarFrom = " Sprt";
                     }
                 } else {
                     calendarFrom = "";
@@ -280,8 +297,15 @@ public class Dilithium extends CanvasWatchFaceService {
                             break;
                         }
                     }
-                    for (int i=0; i<5-calendarTo.length(); ++i) {
-                        calendarTo = " " + calendarTo;
+                    if (!calendarTo.equals("")) {
+                        for (int i = 0; i < 5 - calendarTo.length(); ++i) {
+                            calendarTo = " " + calendarTo;
+                        }
+                    }
+                    if (toDescription.equals("Study Room")) {
+                        calendarTo = " Free";
+                    } else if (toDescription.equals("Sports Hall")) {
+                        calendarTo = " Sprt";
                     }
                 } else {
                     calendarTo = "";
@@ -293,10 +317,6 @@ public class Dilithium extends CanvasWatchFaceService {
             @Override
             protected void onPostExecute(Void data) {
                 invalidate();
-                //if (isVisible()) {
-                    mLoadCalendarHandler.sendEmptyMessageDelayed(
-                            MSG_LOAD_CALENDAR, DateUtils.MINUTE_IN_MILLIS);
-                //}
                 if (calendarTo != null) {
                     Log.e("thjread.dilithium", calendarTo);
                 }
@@ -402,7 +422,7 @@ public class Dilithium extends CanvasWatchFaceService {
                 mCalendar.setTimeZone(TimeZone.getDefault());
             } else {
                 unregisterReceiver();
-                //mLoadCalendarHandler.removeMessages(MSG_LOAD_CALENDAR);
+                mLoadCalendarHandler.removeMessages(MSG_LOAD_CALENDAR);
             }
 
             // Whether the timer should be running depends on whether we're visible (as well as
@@ -459,6 +479,7 @@ public class Dilithium extends CanvasWatchFaceService {
         @Override
         public void onTimeTick() {
             super.onTimeTick();
+            checkBackgroundUpdate();
             invalidate();
         }
 
@@ -626,6 +647,8 @@ public class Dilithium extends CanvasWatchFaceService {
             return isVisible() && !isInAmbientMode();
         }
 
+        long lastBackgroundUpdate;
+
         /**
          * Handle updating the time periodically in interactive mode.
          */
@@ -636,17 +659,24 @@ public class Dilithium extends CanvasWatchFaceService {
                 long delayMs = INTERACTIVE_UPDATE_RATE_MS
                         - (timeMs % INTERACTIVE_UPDATE_RATE_MS);
                 mUpdateTimeHandler.sendEmptyMessageDelayed(MSG_UPDATE_TIME, delayMs);
-
-                mCalendar.setTimeInMillis(System.currentTimeMillis());
-
-                if (mCalendar.get(Calendar.SECOND) == 0) {
-                    backgroundUpdate();
-                }
+                checkBackgroundUpdate();
             }
         }
 
-        private void backgroundUpdate() {
+        private void checkBackgroundUpdate() {
+            if (!mConnected) {
+                return;
+            }
 
+            mCalendar.setTimeInMillis(System.currentTimeMillis());
+
+            if (mCalendar.getTimeInMillis()-lastBackgroundUpdate > DateUtils.MINUTE_IN_MILLIS*3
+                    && mCalendar.get(Calendar.MINUTE)%5 <= 1) {
+                lastBackgroundUpdate = mCalendar.getTimeInMillis();
+
+                mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
+                Log.e("thjread.dilithium", "calendar update");
+            }
         }
     }
 }
