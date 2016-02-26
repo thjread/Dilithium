@@ -108,8 +108,8 @@ public class Dilithium extends CanvasWatchFaceService {
         }
     }
 
-    static boolean mApiConnected = true;
-    static boolean mConnected = false;
+    static boolean mApiConnected = false;
+    static boolean mConnected = true;
     public static class NodeListenerService extends WearableListenerService {
         private static final String TAG = "NodeListenerService";
 
@@ -445,7 +445,9 @@ public class Dilithium extends CanvasWatchFaceService {
                 mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
                 // Update time zone in case it changed while we weren't visible.
                 mCalendar.setTimeZone(TimeZone.getDefault());
-                mGoogleApiClient.connect();
+                if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
+                    mGoogleApiClient.connect();
+                }
             } else {
                 unregisterReceiver();
                 mLoadCalendarHandler.removeMessages(MSG_LOAD_CALENDAR);
