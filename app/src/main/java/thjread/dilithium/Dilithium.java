@@ -36,6 +36,7 @@ import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.support.v4.app.FragmentActivity;
 import android.support.wearable.provider.WearableCalendarContract;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
@@ -44,11 +45,14 @@ import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 
 import java.lang.ref.WeakReference;
+import java.sql.Connection;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Iterator;
@@ -104,7 +108,8 @@ public class Dilithium extends CanvasWatchFaceService {
         }
     }
 
-    static boolean mConnected = true;
+    static boolean mApiConnected = true;
+    static boolean mConnected = false;
     public static class NodeListenerService extends WearableListenerService {
         private static final String TAG = "NodeListenerService";
 
@@ -119,7 +124,8 @@ public class Dilithium extends CanvasWatchFaceService {
         }
     }
 
-    private class Engine extends CanvasWatchFaceService.Engine {
+    private class Engine extends CanvasWatchFaceService.Engine implements GoogleApiClient.ConnectionCallbacks,
+            GoogleApiClient.OnConnectionFailedListener {
         final Handler mUpdateTimeHandler = new EngineHandler(this);
         boolean mRegisteredTimeZoneReceiver = false;
         Bitmap mBackgroundBitmap;
@@ -174,6 +180,8 @@ public class Dilithium extends CanvasWatchFaceService {
         String calendarToText = "";
 
         long latestFrom; long earliestTo; long fromStart;
+
+        private GoogleApiClient mGoogleApiClient;
 
         private void calendarUpdate() {
             long begin = System.currentTimeMillis();
@@ -231,7 +239,7 @@ public class Dilithium extends CanvasWatchFaceService {
                         INSTANCE_PROJECTION, null, null, null);
                 //long fromEventID = -1, toEventID = -1;
                 latestFrom = -1; fromStart = -1;
-                earliestTo = -1;
+                earliestTo = -1; long toEnd = -1;
                 String toDescription = null;
                 String fromDescription = null;
                 while (cursor.moveToNext()) {
@@ -244,10 +252,13 @@ public class Dilithium extends CanvasWatchFaceService {
                         fromStart = start;
                         fromDescription = cursor.getString(3);
                     }
-                    if (start > begin && (start < earliestTo || earliestTo == -1) && !all_day.equals("1")) {
-                        //toEventID = cursor.getLong(0);
-                        earliestTo = start;
-                        toDescription = cursor.getString(3);
+                    if (start > begin && (start <= earliestTo || earliestTo == -1) && !all_day.equals("1")) {
+                        if (start < earliestTo || end < toEnd) {
+                            //toEventID = cursor.getLong(0);
+                            earliestTo = start;
+                            toEnd = end;
+                            toDescription = cursor.getString(3);
+                        }
                     }
                 }
 
@@ -317,12 +328,6 @@ public class Dilithium extends CanvasWatchFaceService {
             @Override
             protected void onPostExecute(Void data) {
                 invalidate();
-                if (calendarTo != null) {
-                    Log.e("thjread.dilithium", calendarTo);
-                }
-                if (calendarFrom != null) {
-                    Log.e("thjread.dilithium", calendarFrom);
-                }
             }
         }
 
@@ -348,6 +353,7 @@ public class Dilithium extends CanvasWatchFaceService {
             }
         }
 
+        private final static String TAG = "thjread.watchface";
 
         @Override
         public void onCreate(SurfaceHolder holder) {
@@ -377,6 +383,25 @@ public class Dilithium extends CanvasWatchFaceService {
             mCalendar = Calendar.getInstance();
 
             mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
+
+            GoogleApiClient mGoogleApiClient = new GoogleApiClient.Builder(Dilithium.this)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .addApi(Wearable.API)
+                    .build();
+        }
+
+        @Override
+        public void onConnected(Bundle connectionHint) {
+            mApiConnected = true;
+        }
+
+        public void onConnectionSuspended(int cause) {
+            mApiConnected = false;
+        }
+
+        public void onConnectionFailed(ConnectionResult cause) {
+            mApiConnected = false;
         }
 
         @Override
@@ -420,9 +445,13 @@ public class Dilithium extends CanvasWatchFaceService {
                 mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
                 // Update time zone in case it changed while we weren't visible.
                 mCalendar.setTimeZone(TimeZone.getDefault());
+                mGoogleApiClient.connect();
             } else {
                 unregisterReceiver();
                 mLoadCalendarHandler.removeMessages(MSG_LOAD_CALENDAR);
+                if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
+                    mGoogleApiClient.disconnect();
+                }
             }
 
             // Whether the timer should be running depends on whether we're visible (as well as
@@ -675,7 +704,6 @@ public class Dilithium extends CanvasWatchFaceService {
                 lastBackgroundUpdate = mCalendar.getTimeInMillis();
 
                 mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
-                Log.e("thjread.dilithium", "calendar update");
             }
         }
     }
