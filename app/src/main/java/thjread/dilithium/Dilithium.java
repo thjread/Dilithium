@@ -36,7 +36,7 @@ import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.support.v4.app.FragmentActivity;
+import android.support.annotation.NonNull;
 import android.support.wearable.provider.WearableCalendarContract;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
@@ -47,20 +47,21 @@ import android.view.WindowInsets;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.CapabilityApi;
+import com.google.android.gms.wearable.CapabilityInfo;
+import com.google.android.gms.wearable.MessageApi;
+import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 
 import java.lang.ref.WeakReference;
-import java.sql.Connection;
 import java.util.Calendar;
-import java.util.Date;
-import java.util.Iterator;
-import java.util.List;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
-import android.support.wearable.provider.WearableCalendarContract;
 import android.provider.CalendarContract;
 
 /**
@@ -68,9 +69,6 @@ import android.provider.CalendarContract;
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
 public class Dilithium extends CanvasWatchFaceService {
-    private static final Typeface NORMAL_TYPEFACE =
-            Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
-
     /**
      * Update rate in milliseconds for interactive mode. We update once a second since seconds are
      * displayed in interactive mode.
@@ -108,7 +106,6 @@ public class Dilithium extends CanvasWatchFaceService {
         }
     }
 
-    static boolean mApiConnected = false;
     static boolean mConnected = true;
     public static class NodeListenerService extends WearableListenerService {
         private static final String TAG = "NodeListenerService";
@@ -125,7 +122,7 @@ public class Dilithium extends CanvasWatchFaceService {
     }
 
     private class Engine extends CanvasWatchFaceService.Engine implements GoogleApiClient.ConnectionCallbacks,
-            GoogleApiClient.OnConnectionFailedListener {
+            GoogleApiClient.OnConnectionFailedListener, MessageApi.MessageListener {
         final Handler mUpdateTimeHandler = new EngineHandler(this);
         boolean mRegisteredTimeZoneReceiver = false;
         Bitmap mBackgroundBitmap;
@@ -146,6 +143,9 @@ public class Dilithium extends CanvasWatchFaceService {
             }
         };
         int mTapCount;
+
+        private GoogleApiClient mGoogleApiClient;
+        boolean mApiConnected = false;
 
         float mXOffset;
         float mYOffset;
@@ -180,8 +180,6 @@ public class Dilithium extends CanvasWatchFaceService {
         String calendarToText = "";
 
         long latestFrom; long earliestTo; long fromStart;
-
-        private GoogleApiClient mGoogleApiClient;
 
         private void calendarUpdate() {
             long begin = System.currentTimeMillis();
@@ -384,23 +382,81 @@ public class Dilithium extends CanvasWatchFaceService {
 
             mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
 
-            GoogleApiClient mGoogleApiClient = new GoogleApiClient.Builder(Dilithium.this)
+            mGoogleApiClient = new GoogleApiClient.Builder(Dilithium.this)
                     .addConnectionCallbacks(this)
                     .addOnConnectionFailedListener(this)
                     .addApi(Wearable.API)
+                    .useDefaultAccount()//TODO necessary?
                     .build();
         }
 
+        private static final String WEATHER_CAPABILITY_NAME = "weather_data";
+        private static final String WEATHER_PATH = "/weather_data";
+
         @Override
         public void onConnected(Bundle connectionHint) {
+            Log.e(TAG, "connected");
+
             mApiConnected = true;
+            Wearable.MessageApi.addListener(mGoogleApiClient, this);
+
+            Wearable.CapabilityApi.getCapability(mGoogleApiClient, WEATHER_CAPABILITY_NAME,
+                    CapabilityApi.FILTER_REACHABLE).setResultCallback(
+                    new ResultCallback<CapabilityApi.GetCapabilityResult>() {
+                        @Override
+                        public void onResult(@NonNull CapabilityApi.GetCapabilityResult getCapabilityResult) {
+                            updateWeatherCapability(getCapabilityResult.getCapability());
+                        }
+                    }
+            );
+
+            CapabilityApi.CapabilityListener capabilityListener =
+                    new CapabilityApi.CapabilityListener() {
+                        @Override
+                        public void onCapabilityChanged(CapabilityInfo capabilityInfo) {
+                            updateWeatherCapability(capabilityInfo);
+                        }
+                    };
+
+            Wearable.CapabilityApi.addCapabilityListener(
+                    mGoogleApiClient,
+                    capabilityListener,
+                    WEATHER_CAPABILITY_NAME);
+        }
+
+        private String mWeatherNodeId = null;
+
+        private void updateWeatherCapability(CapabilityInfo capabilityInfo) {
+            Log.e(TAG, "update weather capability");
+            Set<Node> connectedNodes = capabilityInfo.getNodes();
+
+            mWeatherNodeId = pickBestNodeId(connectedNodes);
+
+            backgroundUpdate();
+        }
+
+        private String pickBestNodeId(Set<Node> nodes) {
+            String bestNodeId = null;
+            // Find a nearby node or pick one arbitrarily
+            for (Node node : nodes) {
+                if (node.isNearby()) {
+                    return node.getId();
+                }
+                bestNodeId = node.getId();
+            }
+            return bestNodeId;
+        }
+
+        @Override
+        public void onMessageReceived(MessageEvent messageEvent) {
+            Log.e("thjread.watchface", "Message: " + messageEvent.getPath());
         }
 
         public void onConnectionSuspended(int cause) {
             mApiConnected = false;
         }
 
-        public void onConnectionFailed(ConnectionResult cause) {
+        public void onConnectionFailed(@NonNull ConnectionResult cause) {
             mApiConnected = false;
         }
 
@@ -445,14 +501,18 @@ public class Dilithium extends CanvasWatchFaceService {
                 mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
                 // Update time zone in case it changed while we weren't visible.
                 mCalendar.setTimeZone(TimeZone.getDefault());
-                if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
+                if (mGoogleApiClient != null) {
                     mGoogleApiClient.connect();
+                    Log.e(TAG, "api connected");
                 }
+                backgroundUpdate();
             } else {
                 unregisterReceiver();
                 mLoadCalendarHandler.removeMessages(MSG_LOAD_CALENDAR);
                 if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
+                    Wearable.MessageApi.removeListener(mGoogleApiClient, this);
                     mGoogleApiClient.disconnect();
+                    Log.e(TAG, "api disconnected");
                 }
             }
 
@@ -558,7 +618,6 @@ public class Dilithium extends CanvasWatchFaceService {
         public void onDraw(Canvas canvas, Rect bounds) {
             mCalendar.setTimeInMillis(System.currentTimeMillis());
             float width = bounds.width();
-            float height = bounds.height();
 
             calendarUpdate();
 
@@ -703,9 +762,31 @@ public class Dilithium extends CanvasWatchFaceService {
 
             if (mCalendar.getTimeInMillis()-lastBackgroundUpdate > DateUtils.MINUTE_IN_MILLIS*3
                     && mCalendar.get(Calendar.MINUTE)%5 <= 1) {
-                lastBackgroundUpdate = mCalendar.getTimeInMillis();
+                backgroundUpdate();
+            }
+        }
 
-                mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
+        private void backgroundUpdate() {
+            lastBackgroundUpdate = mCalendar.getTimeInMillis();
+
+            mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
+
+            byte[] data = {};
+
+            Log.e(TAG, "background update");
+
+            if (mWeatherNodeId != null && mApiConnected) {
+                Log.e(TAG, "sending weather message");
+                Wearable.MessageApi.sendMessage(mGoogleApiClient, mWeatherNodeId,
+                        WEATHER_PATH, data).setResultCallback(
+                        new ResultCallback<MessageApi.SendMessageResult>() {
+                            @Override
+                            public void onResult(@NonNull MessageApi.SendMessageResult result) {
+                                Log.e(TAG, "hi");
+                                Log.e(TAG, result.toString());
+                            }
+                        }
+                );
             }
         }
     }

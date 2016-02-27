@@ -1,1 +1,1 @@
-include ':app', ':weathersync'
+include ':app', ':handheld'
