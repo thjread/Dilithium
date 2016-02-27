@@ -771,7 +771,7 @@ public class Dilithium extends CanvasWatchFaceService {
 
             mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
 
-            byte[] data = {};
+            byte[] data = {1,2};
 
             Log.e(TAG, "background update");
 
