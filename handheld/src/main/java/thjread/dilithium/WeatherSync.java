@@ -13,6 +13,10 @@ import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
+import com.squareup.okhttp.OkHttpClient;
+
+import retrofit.GsonConverterFactory;
+import retrofit.Retrofit;
 
 public class WeatherSync extends WearableListenerService implements GoogleApiClient.ConnectionCallbacks,
         GoogleApiClient.OnConnectionFailedListener {
@@ -87,7 +91,7 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
         protected Void doInBackground(Void... params) {
             Log.e("thjread.dilithium", "Weather Sync task run");
             if (mGoogleApiClient.isConnected()) {
-                byte[] data = null;
+                byte[] data = weatherData();
                 Wearable.MessageApi.sendMessage(mGoogleApiClient, mNodeId,
                         WEATHER_PATH, data).setResultCallback(
                         new ResultCallback<MessageApi.SendMessageResult>() {
@@ -101,5 +105,17 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
             }
             return null;
         }
+    }
+
+    private byte[] weatherData() {
+        OkHttpClient client = new OkHttpClient();
+
+        Retrofit retrofit = new Retrofit.Builder()
+                .baseUrl("http://forecast.io/")
+                .addConverterFactory(GsonConverterFactory.create())
+                .client(client)
+                .build();
+
+        ForecastService service = retrofit.create(ForecastService.class);
     }
 }
