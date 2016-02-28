@@ -1,6 +1,7 @@
 package thjread.dilithium;
 
 import android.content.res.Resources;
+import android.location.Location;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
@@ -14,6 +15,7 @@ import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
+import com.google.android.gms.location.LocationServices;
 import com.squareup.okhttp.OkHttpClient;
 
 import java.io.IOException;
@@ -49,20 +51,17 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
 
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .addApi(Wearable.API)
+                .addApi(LocationServices.API)
                 .addConnectionCallbacks(this)
                 .addOnConnectionFailedListener(this)
                 .build();
 
         mGoogleApiClient.connect();
-
-        Log.e("thjread.dilithium", "Weather Sync listener created");
     }
 
     @Override
     public void onConnected(Bundle connectionHint) {
-        if (Log.isLoggable(TAG, Log.DEBUG)) {
-            Log.d(TAG, "Connected to Google Api Service");
-        }
+        Log.d(TAG, "Connected to Google Api Service");
         Wearable.MessageApi.addListener(mGoogleApiClient, this);
 
         WeatherSyncTask task = new WeatherSyncTask();
@@ -80,9 +79,8 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
 
     @Override
     public void onMessageReceived(MessageEvent messageEvent) {
-        Log.e("thjread.dilithium", "Message received");
         if (messageEvent.getPath().equals(WEATHER_PATH) && !processingMessage) {//TODO
-            Log.e(TAG, "Weather message received");
+            Log.d(TAG, "Weather message received");
             mNodeId = messageEvent.getSourceNodeId();
             WeatherSyncTask task = new WeatherSyncTask();
             processingMessage = true;
@@ -92,27 +90,25 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
 
     @Override
     public void onPeerConnected(Node peer) {
-        Log.e(TAG, "Peer connected: " + peer.getDisplayName());
+        Log.d(TAG, "Peer connected: " + peer.getDisplayName());
     }
 
     @Override
     public void onPeerDisconnected(Node peer) {
-        Log.e(TAG, "Peer disconnected: " + peer.getDisplayName());
+        Log.d(TAG, "Peer disconnected: " + peer.getDisplayName());
     }
 
     private class WeatherSyncTask extends AsyncTask<Void, Void, Void> {
         @Override
         protected Void doInBackground(Void... params) {
-            Log.e("thjread.dilithium", "Weather Sync task run");
             if (mGoogleApiClient.isConnected()) {
                 byte[] data = ByteBuffer.allocate(4).putFloat(weatherData()).array();
-                Log.e(TAG, "Current temperature: " + Float.toString(temperature));
+                Log.d(TAG, "Current temperature: " + Float.toString(temperature));
                 Wearable.MessageApi.sendMessage(mGoogleApiClient, mNodeId,
                         WEATHER_PATH, data).setResultCallback(
                         new ResultCallback<MessageApi.SendMessageResult>() {
                             @Override
                             public void onResult(@NonNull MessageApi.SendMessageResult result) {
-                                Log.e(TAG, "Return message sent");
                                 processingMessage = false;//TODO
                             }
                         }
@@ -121,6 +117,8 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
             return null;
         }
     }
+
+    private Location mLastLocation = null;
 
     private float weatherData() {
         OkHttpClient client = new OkHttpClient();
@@ -133,7 +131,15 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
 
         WeatherService service = retrofit.create(WeatherService.class);
 
-        Call call = service.getWeatherData(key, 52.2050f, 0.1190f);//TODO
+        Location l = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+        if (l != null) {
+            mLastLocation = l;
+        }
+        if (mLastLocation == null) {
+            return temperature;
+        }
+
+        Call call = service.getWeatherData(key, mLastLocation.getLatitude(), mLastLocation.getLongitude());//TODO
         try {
             Response<WeatherService.WeatherData> r = call.execute();
             WeatherService.WeatherData data = r.body();

@@ -57,6 +57,7 @@ import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 
 import java.lang.ref.WeakReference;
+import java.nio.ByteBuffer;
 import java.util.Calendar;
 import java.util.Set;
 import java.util.TimeZone;
@@ -164,7 +165,7 @@ public class Dilithium extends CanvasWatchFaceService {
 
         //https://developer.android.com/training/wearables/data-layer/events.html#Listen
 
-        int mTemp;//TODO
+        float mTemp = 0;
 
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
@@ -395,8 +396,6 @@ public class Dilithium extends CanvasWatchFaceService {
 
         @Override
         public void onConnected(Bundle connectionHint) {
-            Log.e(TAG, "connected");
-
             mApiConnected = true;
             Wearable.MessageApi.addListener(mGoogleApiClient, this);
 
@@ -427,7 +426,6 @@ public class Dilithium extends CanvasWatchFaceService {
         private String mWeatherNodeId = null;
 
         private void updateWeatherCapability(CapabilityInfo capabilityInfo) {
-            Log.e(TAG, "update weather capability");
             Set<Node> connectedNodes = capabilityInfo.getNodes();
 
             mWeatherNodeId = pickBestNodeId(connectedNodes);
@@ -449,7 +447,9 @@ public class Dilithium extends CanvasWatchFaceService {
 
         @Override
         public void onMessageReceived(MessageEvent messageEvent) {
-            Log.e("thjread.watchface", "Message: " + messageEvent.getPath());
+            byte[] d = messageEvent.getData();
+            mTemp = ByteBuffer.wrap(d).getFloat();
+            Log.d(TAG, "Temperature: " + mTemp);
         }
 
         public void onConnectionSuspended(int cause) {
@@ -503,7 +503,6 @@ public class Dilithium extends CanvasWatchFaceService {
                 mCalendar.setTimeZone(TimeZone.getDefault());
                 if (mGoogleApiClient != null) {
                     mGoogleApiClient.connect();
-                    Log.e(TAG, "api connected");
                 }
                 backgroundUpdate();
             } else {
@@ -512,7 +511,6 @@ public class Dilithium extends CanvasWatchFaceService {
                 if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
                     Wearable.MessageApi.removeListener(mGoogleApiClient, this);
                     mGoogleApiClient.disconnect();
-                    Log.e(TAG, "api disconnected");
                 }
             }
 
@@ -691,9 +689,8 @@ public class Dilithium extends CanvasWatchFaceService {
                 }
 
                 if (!showCalendar) {
-                    mTemp = 15;
-                    text = String.format("%02d", mTemp);
-                    mXOffset = width / 360.0f * 239f;
+                    text = String.format("%02d", Math.round(mTemp));
+                    mXOffset = width / 360.0f * 238f;
                     mYOffset = width / 360.0f * 76f;
                     mTextPaint.setTextSize(width / 360.0f * 31.0f);
                     canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
@@ -771,19 +768,16 @@ public class Dilithium extends CanvasWatchFaceService {
 
             mLoadCalendarHandler.sendEmptyMessage(MSG_LOAD_CALENDAR);
 
-            byte[] data = {1,2};
+            byte[] data = {};
 
-            Log.e(TAG, "background update");
+            Log.d(TAG, "Background update");
 
             if (mWeatherNodeId != null && mApiConnected) {
-                Log.e(TAG, "sending weather message");
                 Wearable.MessageApi.sendMessage(mGoogleApiClient, mWeatherNodeId,
                         WEATHER_PATH, data).setResultCallback(
                         new ResultCallback<MessageApi.SendMessageResult>() {
                             @Override
                             public void onResult(@NonNull MessageApi.SendMessageResult result) {
-                                Log.e(TAG, "hi");
-                                Log.e(TAG, result.toString());
                             }
                         }
                 );

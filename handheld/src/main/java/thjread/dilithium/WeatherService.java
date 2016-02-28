@@ -8,35 +8,30 @@ import retrofit.http.GET;
 import retrofit.http.Path;
 
 public interface WeatherService {
-
     @GET("forecast/{api_key}/{latitude},{longitude}?units=si")
     Call<WeatherData> getWeatherData(@Path("api_key") String api_key,
-                                     @Path("latitude") float latitude,
-                                     @Path("longitude") float longitude);
+                                     @Path("latitude") double latitude,
+                                     @Path("longitude") double longitude);
 
-    public class Daily {
-
+    class Daily {
         public String summary;
         public String icon;
         public List<Datum> data = new ArrayList<Datum>();
     }
 
-    public class Hourly {
-
+    class Hourly {
         public String summary;
         public String icon;
         public List<Datum> data = new ArrayList<Datum>();
     }
 
-    public class Minutely {
-
+    class Minutely {
         public String summary;
         public String icon;
         public List<Datum> data = new ArrayList<Datum>();
     }
 
-    public class Datum {
-
+    class Datum {
         public Integer time;
         public String summary;
         public String icon;
@@ -67,7 +62,7 @@ public interface WeatherService {
         public Double ozone;
     }
 
-    public class Flags {
+    class Flags {
         public List<String> sources = new ArrayList<String>();
         public List<String> darkskyStations = new ArrayList<String>();
         public List<String> datapointStations = new ArrayList<String>();
@@ -77,7 +72,7 @@ public interface WeatherService {
         public String units;
     }
 
-    public class WeatherData {
+    class WeatherData {
         public Double latitude;
         public Double longitude;
         public String timezone;
