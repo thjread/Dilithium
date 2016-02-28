@@ -1,5 +1,6 @@
 package thjread.dilithium;
 
+import android.content.res.Resources;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
@@ -15,7 +16,13 @@ import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 import com.squareup.okhttp.OkHttpClient;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.concurrent.TimeUnit;
+
+import retrofit.Call;
 import retrofit.GsonConverterFactory;
+import retrofit.Response;
 import retrofit.Retrofit;
 
 public class WeatherSync extends WearableListenerService implements GoogleApiClient.ConnectionCallbacks,
@@ -32,8 +39,14 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
 
     private boolean processingMessage = false;//TODO
 
+    private static String key;
+
+    float temperature = 0;
+
     @Override
     public void onCreate() {
+        key = getResources().getString(R.string.forecast_api_key);
+
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .addApi(Wearable.API)
                 .addConnectionCallbacks(this)
@@ -43,8 +56,6 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
         mGoogleApiClient.connect();
 
         Log.e("thjread.dilithium", "Weather Sync listener created");
-        WeatherSyncTask task = new WeatherSyncTask();
-        task.execute();
     }
 
     @Override
@@ -53,6 +64,9 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
             Log.d(TAG, "Connected to Google Api Service");
         }
         Wearable.MessageApi.addListener(mGoogleApiClient, this);
+
+        WeatherSyncTask task = new WeatherSyncTask();
+        task.execute();
     }
 
     @Override
@@ -91,7 +105,8 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
         protected Void doInBackground(Void... params) {
             Log.e("thjread.dilithium", "Weather Sync task run");
             if (mGoogleApiClient.isConnected()) {
-                byte[] data = weatherData();
+                byte[] data = ByteBuffer.allocate(4).putFloat(weatherData()).array();
+                Log.e(TAG, "Current temperature: " + Float.toString(temperature));
                 Wearable.MessageApi.sendMessage(mGoogleApiClient, mNodeId,
                         WEATHER_PATH, data).setResultCallback(
                         new ResultCallback<MessageApi.SendMessageResult>() {
@@ -107,15 +122,29 @@ public class WeatherSync extends WearableListenerService implements GoogleApiCli
         }
     }
 
-    private byte[] weatherData() {
+    private float weatherData() {
         OkHttpClient client = new OkHttpClient();
 
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl("http://forecast.io/")
+                .baseUrl("https://api.forecast.io/")
                 .addConverterFactory(GsonConverterFactory.create())
                 .client(client)
                 .build();
 
-        ForecastService service = retrofit.create(ForecastService.class);
+        WeatherService service = retrofit.create(WeatherService.class);
+
+        Call call = service.getWeatherData(key, 52.2050f, 0.1190f);//TODO
+        try {
+            Response<WeatherService.WeatherData> r = call.execute();
+            WeatherService.WeatherData data = r.body();
+            if (data != null && data.currently != null && data.currently.temperature != null) {
+                double temp = data.currently.temperature;
+                temperature = (float) temp;
+            }
+        } catch (IOException e) {
+            Log.e(TAG, e.getMessage());
+        }
+
+        return temperature;
     }
 }
